@@ -1,0 +1,327 @@
+import sys
+from math import *
+
+#store types of instructions
+type_A=["add", "sub", "mul", "xor", "or", "and", "addf", "subf"]
+type_B=["mov", "ls", "rs", "movf"]
+type_C=["mov", "div", "not" , "cmp" ]
+type_D=["ld", "st"]
+type_E=["jmp","jlt", "jgt","je" ]
+type_F=["hlt"]
+
+#store label memory address
+label_address={}
+# label_vis={}
+
+#no of unused bits to be added
+unused_bit = {"A": 2, "B": 0, "C": 5, "D": 0, "E": 3, "F": 11}
+err_codes = {
+    0: "Typo in instruction name",
+    1: "Typo in register name",
+    2: "Use of undefined variable",
+    3: "Use of undefined label",
+    4: "Illegal use of FLAGS register",
+    5: "Illegal immediate values ",
+    6: "Misuse of labels as variables or vice-versa", 
+    7: "Variables not declared at the beginning",
+    8: "Missing hlt instruction",
+    9: "instruction used after hlt",
+    10: "Illegal use of labels => no instruction for label or multiple labels in same instruction",
+    11: "Syntax error in immediate value",
+    12: "Syntax error",
+    13: "Redefinition of variable",
+    14: "Using same label more than one time"
+}
+opcode = {"movB": "10010", "movC": "10011", "hlt": "01010", "mul": "10110", "st": "10101", "add" : "10000", "sub": "10001", "ld":"10100", "div": "10111", "rs": "11000", "ls": "11001", "xor": "11010", "or": "11011", "and": "11100", "not": "11101", "cmp": "11110", "jmp":"11111", "jlt": "01100", "jgt":"01101", "je": "01111", "addf": "00000", "subf" :"00001","movf" :"00010"}
+var_address = {}
+num_instructions = 0
+n = 0
+
+def read_file():
+    # x=input()
+    # print(x)
+    # return x.split("\n")
+    # f=open("A.txt", "r")
+    # list_file_line= f.readlines()
+    # return list_file_line
+    l=[]
+    for line in sys.stdin:
+        # print(line+"\n")
+        if(line!="\n"):
+            l.append(line)
+    return l
+
+#determine type
+def op_type(k, i):
+    # if(len(k)==0):
+    #   return 0
+    if (k[0] in type_B and k[0] in type_C):
+        if(k[2][0]=="$"):
+            # print("B")
+            return "B"
+        else:
+            # print("C")
+            return "C"
+    elif(k[0] in type_A):
+        return "A"
+    elif(k[0] in type_B):
+        return "B"
+    elif(k[0] in type_C):
+        return "C"
+    elif(k[0] in type_D):
+        return "D"
+    elif(k[0] in type_E):
+        return "E"
+    elif(k[0] in type_F):
+        return "F"
+    elif(k[0][-1]==":"):
+        if len(k)==1 or k[1][-1] == ":":
+            return 10#
+        # elif(k[1]=="hlt"):#
+        #   return 9#
+        # label_vis[k[0][:-1]]=False
+        return op_type(k[1:], i)
+    elif(k[0]=="var"):
+        return "V"
+    else:
+        return 0#
+
+#convert decimal number to binary
+def dec_to_binary(num, num_digits=8):
+    ans=""
+    l=[]
+    # print(num,end=":")
+    while num>0:
+        t=num%2
+        l.append(t)
+        num=num//2
+    l.reverse()
+    for i in l:
+        if i>=0 and i<=9:
+            ans+= str(i)
+        else:
+            ans+=chr(i+55)
+    ans="0"*(num_digits-len(ans))+ans
+    # print(ans)
+    return ans
+
+
+#returns opcode
+def _opcode(op, t):
+    if op=="mov":
+        if t=="B":
+            op=op+"B"
+        else:
+            op=op+"C"
+    return opcode[op]
+
+#returns number of unused bits
+def _unused_bit(t):
+    return "0"*unused_bit[t]
+
+
+#check whether register is valid
+def is_reg(reg, op=None):
+    regstr = ""
+    for r in reg:
+        if r[0] == "R" and r[1:].isnumeric() and int(r[1:])<=6 and int(r[1:])>=0:#
+            regstr += dec_to_binary(int(r[-1]), 3)
+        elif r == "FLAGS":
+            if op == "movC" and reg[0] == "FLAGS":
+                regstr += dec_to_binary(7, 3)
+            else:
+                return 4#
+        else:
+            return 1#
+    return regstr
+
+def decimal_to_floating_point(value):
+    e = floor(log2(value))
+    mantissa = (value/2**e) - 1
+    before = []
+    for i in range(5):
+        value = mantissa*2
+        value = int(value//1)
+        before += str(value)
+        mantissa = (mantissa*2) - ((mantissa*2)//1)
+    e = str(bin(e))[2:]
+    if e[0] == '-':
+        e = e[3:]
+    else:
+        e = e[2:]
+    before = "".join(before)
+    final = e + before
+    final= "0"*(8-len(final)) + final
+    return final
+
+#check validity of immediate value
+def immediate_value(value, type):
+    if value[0] != "$":
+        # print("value:", value[0])
+        return 11#
+    if type == "movf":
+        try:
+            val = float(value[1:])
+        except:
+            return 11
+        if val >=252 or val <=0 :
+            return 5
+        print("value: ", val)
+        bin_val = decimal_to_floating_point(val)
+        return bin_val
+    else:
+        if not value[1:].isnumeric():
+            return 11#
+        elif int(value[1:]) >= 2**8 or int(value[1:]) < 0:
+            return 5#
+        return dec_to_binary(int(value[1:]), 8)
+
+def memory_address(variable):
+    if variable in var_address:
+        return dec_to_binary(var_address[variable])
+    return 2#
+
+def label(address):
+    # if address.isnumeric():
+    #   return address
+    if address in label_address:
+        return label_address[address]
+    return 3#
+
+#function to generate code
+def generate_code(instruction_syntax, type):
+    global num_instructions, n
+    binary_instruction = ""
+    if instruction_syntax[0][-1] == ":":
+        if type == "V":
+            return (12, n)
+        if instruction_syntax[0][:-1] in var_address:
+            return (6, n)
+        instruction_syntax=instruction_syntax[1:]
+    #   if instruction_syntax[0][-1] not in label_address:
+    #       return 10
+    #   label_vis[instruction_syntax[0][-1]] = True
+    if type == "V":
+        if len(instruction_syntax) != 2:
+            return (12, n)
+        if instruction_syntax[1] not in var_address:
+            var_address[instruction_syntax[1]] = num_instructions + n
+        else:
+            return (13, n)
+        n += 1
+        return ""
+    binary_instruction += _opcode(instruction_syntax[0], type)
+    binary_instruction += _unused_bit(type)
+    l = len(instruction_syntax)
+    if type == "A" or type == "C":
+        reg = is_reg(instruction_syntax[1:], instruction_syntax[0]+type)
+        if type == "A" and l != 4:
+            return (12, n)
+        elif type == "C" and l!=3:
+            return (12, n)
+        elif isinstance(reg, int):
+            return (reg, n)
+        else:
+            binary_instruction += reg
+    elif type == "B":
+        reg = is_reg(instruction_syntax[1:2], type)
+        im_val = immediate_value(instruction_syntax[2], instruction_syntax[0])
+        if l != 3:
+            return (12, n)
+        elif isinstance(reg, int):
+            return (reg, n)
+        elif isinstance(im_val, int):
+            return (im_val, n)
+        else:
+            binary_instruction += reg + im_val
+    elif type == "D":
+        reg = is_reg(instruction_syntax[1:2], type)
+        mem = memory_address(instruction_syntax[2])
+        # print("what ", reg, mem)
+        if l != 3:
+            return (12, n)
+        elif isinstance(reg, int):
+            return (reg, n)
+        elif isinstance(mem, int):
+            return (mem, n)
+        else:
+            binary_instruction += reg + mem
+    elif type == "E":
+        address = label(instruction_syntax[1])
+        if l != 2:
+            return (12, n)
+        elif isinstance(address, int):
+            return (address, n)
+        else:
+            binary_instruction += address
+    elif type == "F":
+        if l != 1:
+            return (12, n)
+    elif isinstance(type, int):
+        return (type, n)
+    n += 1
+    return binary_instruction
+
+#INPUT SEND TO OUTPUT TEXT FILE
+def menu():
+    global num_instructions
+    assembly_instructions=read_file()
+    # print(assembly_instructions)
+    type_list=[]
+    err = None
+
+    for i, instr in enumerate(assembly_instructions):
+        blocks=instr.split()
+        typ = op_type(blocks, i)
+        if isinstance(typ, str):
+            type_list.append(typ)
+            if typ != "V":
+                if blocks[0][-1] == ":":
+                    if blocks[0][:-1] not in label_address:
+                        label_address[blocks[0][:-1]]=dec_to_binary(int(num_instructions))
+                    else:
+                        err = (14, i)
+                        break
+                num_instructions += 1
+            else:
+                if num_instructions > 0:
+                    err = (7, i)
+                    break
+        else:
+            err=(typ, i)
+            break
+
+    f=open("output.txt", "w")
+    if err is not None:
+        err_n, err_ln = err
+        print("Error: ", err_codes[err_n], " on line number:", err_ln+1)
+        f.write("Error: " + str(err_codes[err_n]) + " on line number: " + str(err_ln+1))
+        return
+
+    binary_instructions = list()
+    for ind, (instr, typ) in enumerate(zip(assembly_instructions, type_list)):
+        syntax = instr.split()
+        bin_instr = generate_code(syntax, typ)
+        if isinstance(bin_instr, str):
+            if syntax[syntax[0][-1] == ":"] != "hlt" and ind == len(assembly_instructions)-1:
+                err = (8, n)
+                break
+            elif syntax[syntax[0][-1] == ":"] == "hlt" and ind != len(assembly_instructions)-1:
+                err = (9, n)
+                break
+            elif bin_instr != "":
+                binary_instructions.append(bin_instr)
+        else:
+            err=bin_instr
+            break
+
+    if err is None:
+        for b in binary_instructions:
+            f.write(b+ "\n")
+            print(b)
+    else:
+        err_n, err_ln = err
+        print("Error:", err_codes[err_n],"on line number:", err_ln+1)
+        f.write("Error: " + str(err_codes[err_n]) + " on line number: "+ str(err_ln+1))
+
+menu()
